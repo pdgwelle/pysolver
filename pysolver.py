@@ -72,39 +72,118 @@ class Cube(pc.Cube):
 			out_list.extend(Face(self, face).get_same_colors())
 		return out_list
 
+	def get_colors(self):
+		out_list = []
+		faces = ['L', 'U', 'F', 'D', 'R', 'B']
+		for face in faces:
+			out_list.extend(Face(self, face).get_colors())
+		return out_list
+
 	def copy(self):
 		return Cube({c[1].copy() for c in self})
 
-	def get_best_move(self, model, last_move):
+	def get_best_move(self, model, last_move, return_cubes=False, return_moves=False):
 		moves = ['F', 'U', 'R', 'D', 'L', 'B', 'F\'', 'U\'', 'R\'', 'D\'', 'L\'', 'B\'']
 		if(last_move is not None):
 			reverse_last_move = pc.Formula(last_move).reverse().__str__()
 			moves.remove(reverse_last_move)
 		predictions = []
+		cubes = []
 		for move in moves:
 			new_cube = self.copy()
 			new_cube(move)
+			cubes.append(new_cube)
 			predictions.append(model.predict_score(new_cube))
 		predictions_dict = dict(zip(moves, predictions))
-		return moves[np.argmin(predictions)], predictions_dict
 
-	def solve(self, model):
+		out_array = [moves[np.argmin(predictions)], predictions_dict]
+		if(return_cubes): out_array.append(cubes)
+		if(return_moves): out_array.append(moves)
+		return out_array
+
+	def solve(self, model, max_iter=100, show=True):
 
 		original_cube = self.copy()
 		prediction_set = []
 		last_move = None
 
-		for _ in range(20):
+		for _ in range(max_iter+1):
 			if(self.is_completed()):
 				break
 			move, predictions = self.get_best_move(model, last_move)
 			last_move = copy.copy(move)
 			self = self(move)
 			prediction_set.append(predictions)
-			print(move)
-			print(self.__repr__())
+			if(show): 
+				print(move)
+				print(self.__repr__())
 
 		return original_cube, self, _, prediction_set
+
+	def solve_search(self, model, max_iter=100, show=False):
+
+		def get_new_sets(self, model, last_set):
+			base_formula = last_set['Formula']
+			
+			if(base_formula.__str__() == '[]'): 
+				last_move = last_set['Formula'][-1].__str__()
+				base_formula = base_formula[0]
+				last_move = None
+			else: last_move = base_formula[-1]
+
+			_, prediction_dict, cubes, moves = self.get_best_move(model, last_move, 
+				return_cubes=True, return_moves=True)
+
+			formulas = [pc.Formula(base_formula.__str__() + ' ' + move) for move in moves]
+			predictions = [prediction_dict[move] for move in moves]
+
+			out_sets = np.array(zip(formulas, cubes, predictions), dtype=last_set.dtype)
+			return out_sets
+
+		def prune_set(self, model, new_sets, alpha = 4):
+			cube_prediction = model.predict_score(self)
+			out_sets = new_sets[new_sets['Prediction'] < (cube_prediction + alpha)]
+			return out_sets
+
+		def get_minimum_state(saved_states):
+			index = np.argmin(saved_states['Prediction'])
+			out_state = saved_states[index]
+			return out_state, index
+
+		def stuck_in_loop(current_state):
+			f = current_state['Formula']
+			if(len(f) < 3): return False
+			elif(f[-1] == f[-2] == f[-3]): return True
+			else: return False
+
+		original_cube = self.copy()
+		saved_states = np.empty(0, dtype=[('Formula', object), ('Cube', object), ('Prediction', 'f8')])
+		last_set = np.array([(pc.Formula(), self.copy(), 100)], dtype=saved_states.dtype)
+		current_state = last_set
+
+		for _ in range(max_iter+1):
+			if(self.is_completed()): break
+			if((_ > 0) & (saved_states.size == 0)): break
+			new_sets = get_new_sets(self, model, last_set)
+			pruned_set = prune_set(self, model, new_sets)
+			if(pruned_set.size > 0): saved_states = np.append(saved_states, pruned_set)
+			current_state, current_state_index = get_minimum_state(saved_states)
+			saved_states = np.delete(saved_states, current_state_index)
+			if(stuck_in_loop(current_state)): 
+				current_state, current_state_index = get_minimum_state(saved_states)
+				saved_states = np.delete(saved_states, current_state_index)
+			self = current_state['Cube'].copy()
+			last_set = current_state
+			current_state
+
+		return original_cube, self, _, current_state['Formula']
+
+	def get_solution_prediction(self, solution, model):
+		alt_cube = self.copy()
+		predictions = []
+		for move in solution:
+			predictions.append(model.predict_score(alt_cube(move)))
+		return predictions
 
 class Game():
 
@@ -233,6 +312,33 @@ class Face():
 			rotated_face = rotated_face.rotate_face()
 		return out_vals
 
+	def get_colors(self):
+		def color_to_number(color):
+			out_array = [0,0,0,0,0,0]
+			if(color.__str__() == '[g]'):   ind = 0
+			elif(color.__str__() == '[y]'): ind = 1
+			elif(color.__str__() == '[o]'): ind = 2
+			elif(color.__str__() == '[w]'): ind = 3
+			elif(color.__str__() == '[r]'): ind = 4
+			elif(color.__str__() == '[b]'): ind = 5
+			out_array[ind] = 1
+			return out_array
+
+		def get_vals(face):
+			corner_color = color_to_number(face['F'][0,0])
+			center_color = color_to_number(face['F'][0,1])
+			return corner_color, center_color
+
+		out_vals = []
+		rotated_face = self
+		for _ in range(4):
+			corner, center = get_vals(rotated_face)
+			out_vals.extend(corner)
+			out_vals.extend(center)
+			rotated_face = rotated_face.rotate_face()
+		return out_vals
+
+
 	def flatten_face(self):
 		return [item for sublist in self.face for item in sublist]
 
@@ -252,43 +358,62 @@ class Model():
 		self.training_data = None
 		self.regression_model = None
 				
-	def create_training_data(self, n_games, n_moves):
-		def create_pd_dataframe(reg_list, n_vals=20):
+	def create_training_data(self, n_games, n_moves, show_progress = True):
+		def create_pd_dataframe(reg_list, n_vals=48):
 			col_names = ['moves_left']
 			for val in range(n_vals): col_names.append(str(val))
 			out_df = pd.DataFrame(reg_list, columns = col_names, dtype = np.int8)
 			for val in range(n_vals): out_df[str(val)] = out_df[str(val)].astype(np.bool)
-			return out_df
+			reg_list = []
+			return out_df, reg_list
+
+		def append_to_df(training_data, reg_list):
+			dt = [(col, training_data.dtypes[col].descr[0][1]) for col in training_data.columns]
+			append_array = np.array(reg_list, dtype=dt)
+			append_data = pd.DataFrame(append_array)
+			training_data = training_data.append(append_data, ignore_index=True)
+			reg_list = []
+			return training_data, reg_list
+
+		if(show_progress):
+			display_iterations = int(n_games / 50)
+			if(display_iterations == 0): display_iterations = 1
 
 		reg_list = []
 		for _ in range(n_games):
+			
 			g = Game(n_moves)
+
 			for (index, c) in enumerate(g.game_states):
-				completed_pieces = c.get_completed_pieces()
+				feature_list = c.get_colors()
 				moves_away = [len(g.game_states) - index]
 				reg_list_entry = []
 				reg_list_entry.extend(moves_away)
-				reg_list_entry.extend(completed_pieces)
-				reg_list.append(reg_list_entry)
-		self.training_data = create_pd_dataframe(reg_list)
-		pd.DataFrame(reg_list, columns = np.append(np.array('moves_left'), np.arange(len(completed_pieces))))
+				reg_list_entry.extend(feature_list)
+				reg_list.append(tuple(reg_list_entry))
+				if((_==0) & (index==0)): training_data, reg_list = create_pd_dataframe(reg_list, len(reg_list[0])-1)
 
-	def train_model(self):
+			if(_ % 5000 == 0): training_data, reg_list = append_to_df(training_data, reg_list)
+			if(show_progress & ((_ % display_iterations) == 0)): print("Finished with " + str(_) + " games")
+		
+		if(reg_list != []): training_data, reg_list = append_to_df(training_data, reg_list)
+		self.training_data = training_data
+
+	def train_model(self, hidden_layer_sizes  = (100,)):
 		if(self.training_data is None):
 			return None
 
 		y = self.training_data.ix[:,0]
 		x = self.training_data.ix[:,1:]
 
-		reg = MLPRegressor()
+		reg = MLPRegressor(hidden_layer_sizes = hidden_layer_sizes)
 		reg.fit(x,y)
 
 		self.regression_model = reg
 
 	def predict_score(self, cube):
-		x_vals = np.array(cube.get_completed_pieces()).reshape(1,-1)
+		x_vals = np.array(cube.get_colors()).reshape(1,-1)
 		return self.regression_model.predict(x_vals)[0]
-
 
 class Test():
 
@@ -325,3 +450,29 @@ class Test():
 				cube_predictions.append(self.model.predict_score(c))
 			cube_predictions_average.append(np.average(cube_predictions))
 		return cube_predictions_average
+
+	def correct_cubes_solved(self, n_moves=10, max_iter=100, solve_search=False):
+
+		cubes_solved_average = []
+		for move_index in range(n_moves):
+			cubes_solved = []
+			for _ in range(100):
+				c = Cube()
+				
+				if(solve_search): search_func=c.solve_search
+				else: search_func=c.solve
+		
+
+				scramble_moves, solution = c.scramble_cube(move_index)
+				orig_cube, final_cube, iterations, pred_set = search_func(self.model, max_iter=max_iter, show=False)
+				if(iterations == max_iter): solve_val = 0.0
+				else: solve_val = 1.0
+				cubes_solved.append(solve_val)
+			cubes_solved_average.append(np.average(cubes_solved))
+		return cubes_solved_average
+
+	def all_diagnostics(self, n_moves=10):
+		t_results_1 = self.correct_move_selection(n_moves)
+		t_results_2 = self.correct_cube_predictions(n_moves)
+		t_results_3 = self.correct_cubes_solved(n_moves)
+		return t_results_1, t_results_2, t_results_3
