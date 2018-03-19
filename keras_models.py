@@ -1,13 +1,11 @@
-import pickle
-with open("models/1000.pkl", "rb") as f:
-    model = pickle.load(f)
-
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Activation
 
 import numpy as np
 import matplotlib.pyplot as plt
+
+import pysolver as ps
 
 def get_model(layers=1, layer_size=288, reg_lambda=0.01):
     dense_layers = [Dense(layer_size, input_shape=(288,), kernel_regularizer=keras.regularizers.l2(reg_lambda)), Activation('elu')]
@@ -64,115 +62,207 @@ def plot_learning_curve(train_mse, val_mse, data_sizes):
     plt.legend()
     plt.show()
 
-## Get data
-labels, data = get_data(model)
+if __name__ == '__main__':
+    
+    ## Read in data
+    import pickle
+    with open("models/1000.pkl", "rb") as f:
+        model = pickle.load(f)
 
-## Create test data
-test_model = ps.Model()
-test_model.create_training_data(n_games=100, n_moves=15)
-val_labels, val_data = get_data(test_model)
+    ## Get data
+    labels, data = get_data(model)
 
-########################
-# BASE MODEL
-########################
+    ## Create test data
+    test_model = ps.Model()
+    test_model.create_training_data(n_games=100, n_moves=15)
+    val_labels, val_data = get_data(test_model)
 
-# Train basic model, val_mse=2.76 - Not training enough epochs. Overfitting
-k_model = get_model()
-train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels)
-plot_learning_curve(train_mse, val_mse, data_sizes)
+    ########################
+    # BASE MODEL
+    ########################
 
-# Increase epochs, decrease batch size, val_mse=2.85. Enough epochs. Overfitting
-k_model = get_model()
-train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels, 
-    epochs=90, batch_size=32)
-plot_learning_curve(train_mse, val_mse, data_sizes)
+    # Train basic model, val_mse=2.76 - Not training enough epochs. Overfitting
+    k_model = get_model()
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
 
-# Less epochs. val_mse=3.13. Not enough epochs. Badly overfitting still.
-k_model = get_model()
-train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels, 
-    epochs=60, batch_size=32)
-plot_learning_curve(train_mse, val_mse, data_sizes)
+    # Increase epochs, decrease batch size, val_mse=2.85. Enough epochs. Overfitting
+    k_model = get_model()
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels, 
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
 
-# Regularize. val_mse = 3.85. Way too much regularization!
-k_model = get_model(reg_lambda = 100)
-train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels, 
-    epochs=90, batch_size=32)
-plot_learning_curve(train_mse, val_mse, data_sizes)
+    # Less epochs. val_mse=3.13. Not enough epochs. Badly overfitting still.
+    k_model = get_model()
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels, 
+        epochs=60, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
 
-# Regularize. train_mse = 2.42, val_mse = 3.12
-k_model = get_model(reg_lambda = 1.0)
-train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels, 
-    epochs=90, batch_size=32)
-plot_learning_curve(train_mse, val_mse, data_sizes)
+    # Regularize. val_mse = 3.85. Way too much regularization!
+    k_model = get_model(reg_lambda = 100)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels, 
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
 
-# Try lambdas
-lambdas=[0.01, 0.05, 0.1, 0.5, 1.0]
-train_mse = []
-val_mse = []
-for lamb in lambdas:
-    k_model = get_model(reg_lambda = lamb)
-    train_score, val_score = get_train_validation_score(k_model, data, labels, 
-        val_data, val_labels, epochs=90, batch_size=32)
-    train_mse.append(train_score)
-    val_mse.append(val_score)
-# train_mses
-# [0.47521212517392747,
-#  1.595971611070737,
-#  1.9369514780626318,
-#  2.4808224738293485,
-#  2.530707689498591]
-# val_mses [2.7283635, 3.12584, 2.77948, 3.1779163, 3.3210151]
+    # Regularize. train_mse = 2.42, val_mse = 3.12
+    k_model = get_model(reg_lambda = 1.0)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels, 
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
 
-# Try simpler model
-lambdas=[0.001, 0.01, 0.05, 0.1, 0.5]
-train_mse = []
-val_mse = []
-for lamb in lambdas:
-    k_model = get_model(layer_size=100, layers=1, reg_lambda = lamb)
-    train_score, val_score = get_train_validation_score(k_model, data, labels, 
-        val_data, val_labels, epochs=90, batch_size=32)
-    train_mse.append(train_score)
-    val_mse.append(val_score)
-# val_mse = [2.7591174, 2.6775143, 3.0139153, 2.8819208, 3.1034288]
-# train_mses
-# [0.08667999209488486,
-#  0.4461361649855376,
-#  1.5934562222543798,
-#  1.9963456792249659,
-#  2.4970782410864736]
+    # Try lambdas
+    lambdas=[0.01, 0.05, 0.1, 0.5, 1.0]
+    train_mse = []
+    val_mse = []
+    for lamb in lambdas:
+        k_model = get_model(reg_lambda = lamb)
+        train_score, val_score = get_train_validation_score(k_model, data, labels, 
+            val_data, val_labels, epochs=90, batch_size=32)
+        train_mse.append(train_score)
+        val_mse.append(val_score)
+    # train_mses
+    # [0.47521212517392747,
+    #  1.595971611070737,
+    #  1.9369514780626318,
+    #  2.4808224738293485,
+    #  2.530707689498591]
+    # val_mses [2.7283635, 3.12584, 2.77948, 3.1779163, 3.3210151]
 
-# Try more complex model
-lambdas=[0.01, 0.05, 0.1, 0.5, 1.0]
-train_mse = []
-val_mse = []
-for lamb in lambdas:
-    k_model = get_model(layer_size=288*2, layers=1, reg_lambda = lamb)
-    train_score, val_score = get_train_validation_score(k_model, data, labels, 
-        val_data, val_labels, epochs=90, batch_size=32)
-    train_mse.append(train_score)
-    val_mse.append(val_score)
+    # Try simpler model
+    lambdas=[0.001, 0.01, 0.05, 0.1, 0.5]
+    train_mse = []
+    val_mse = []
+    for lamb in lambdas:
+        k_model = get_model(layer_size=100, layers=1, reg_lambda = lamb)
+        train_score, val_score = get_train_validation_score(k_model, data, labels, 
+            val_data, val_labels, epochs=90, batch_size=32)
+        train_mse.append(train_score)
+        val_mse.append(val_score)
+    # val_mse = [2.7591174, 2.6775143, 3.0139153, 2.8819208, 3.1034288]
+    # train_mses
+    # [0.08667999209488486,
+    #  0.4461361649855376,
+    #  1.5934562222543798,
+    #  1.9963456792249659,
+    #  2.4970782410864736]
 
-
-### Conclusions:
-# Validation and training data far away. HIGH VARIANCE
-# More data, less features. 
-# Tried regularization. 
-# Smaller model gets similar mse score
+    ### Conclusions:
+    # Validation and training data far away. HIGH VARIANCE
+    # More data, less features. 
+    # Tried regularization. 
+    # Smaller model gets similar mse score
 
 
-#######################
-# 
-#######################
+    #######################
+    # 5000 games
+    #######################
 
+    ## Read in data
+    import pickle
+    with open("models/5000.pkl", "rb") as f:
+        model = pickle.load(f)
 
+    ## Get data
+    labels, data = get_data(model)
 
-# Evaluate loss
-def eval_loss():
-    plt.plot(history.history['loss'])
-    plt.plot(history.history['val_loss'])
-    plt.title('model loss')
-    plt.ylabel('loss')
-    plt.xlabel('epoch')
-    plt.legend(['train', 'test'], loc='upper left')
-    plt.ylim(0,4)
-    plt.show()
+    ## Create test data
+    test_model = ps.Model()
+    test_model.create_training_data(n_games=500, n_moves=15)
+    val_labels, val_data = get_data(test_model)
+
+    # Try initial model (too few epochs!) (1 min 13 secs)
+    k_model = get_model(layers=1, layer_size=100, reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # train_mse
+    # [1.8325009634213658,
+    #  1.2401973347101631,
+    #  1.1821984344654672,
+    #  1.1757188645812653,
+    #  1.157283694763424]
+    # val_mse = [2.2390652, 1.9152844, 1.9313699, 1.8837734, 1.9307281]
+
+    # Try model with more epochs
+    k_model = get_model(layers=1, layer_size=100, reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+
+    # Try model with more epochs 8min 24s. Curves look good, still high variance. Need more data. 
+    # Note: Amazon instance p2.xlarge was 23min 35s. Slowwww!!
+    k_model = get_model(layers=1, layer_size=100, reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # train_mse
+    # [0.9428296794020089,
+    #  1.1503472427330395,
+    #  1.269752991675186,
+    #  1.3116868469545586,
+    #  1.3320530513854418]
+    # val_mse
+    # [2.2947514, 2.1764157, 2.0113559, 1.991767, 1.9731245]
+
+    ## Try overfitting. 18min 36s. Really similar performance!
+    k_model = get_model(layers=2, layer_size=288, reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # train_mse:
+    # [0.8974917681554113,
+    #  1.2013781601839726,
+    #  1.2536018186741464,
+    #  1.3177748978620816,
+    #  1.3143270486459122]
+    # val_mse
+    # [2.3333464, 2.1525126, 2.260423, 2.0248573, 1.9488932]
+
+    ## Try overfitting with one layer. 26min 3s. Again, similar performance.
+    k_model = get_model(layers=1, layer_size=288*3, reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # train_mse
+    # [0.9242459848268305,
+    #  1.1361261460718863,
+    #  1.2795783124455025,
+    #  1.3083641902805985,
+    #  1.3381138709705225]
+    # val_mse
+    # [2.2532637, 2.1082494, 2.049546, 1.9930592, 1.9454465]
+
+    # Try simpler model
+    lambdas=[0.001, 0.01, 0.05, 0.1, 0.5]
+    train_mse = []
+    val_mse = []
+    for lamb in lambdas:
+        k_model = get_model(layer_size=100, layers=1, reg_lambda = lamb)
+        train_score, val_score = get_train_validation_score(k_model, data, labels, 
+            val_data, val_labels, epochs=90, batch_size=32)
+        train_mse.append(train_score)
+        val_mse.append(val_score)
+    # train_mse
+    # [0.6348636344228105,
+    #  1.3675692196862317,
+    #  2.09179469127037,
+    #  2.222595258844961,
+    #  2.5319955567086097]
+    # val_mse
+    # [2.0787704, 1.9801466, 2.3308702, 2.3849738, 2.6314483]
+
+    #################
+    # 25000 games
+    #################
+
+    ## Read in data
+    import pickle
+    with open("models/25000.pkl", "rb") as f:
+        model = pickle.load(f)
+
+    ## Get data
+    labels, data = get_data(model)
+
+    ## Create test data
+    test_model = ps.Model()
+    test_model.create_training_data(n_games=2500, n_moves=15)
+    val_labels, val_data = get_data(test_model)
