@@ -1,7 +1,7 @@
 import pysolver as ps
 
 model = ps.Model()
-model.create_training_data(n_games=1000, n_moves=20)
+model.create_training_data(n_games=1000, n_moves=15)
 model.train_model()
 
 c = ps.Cube()
