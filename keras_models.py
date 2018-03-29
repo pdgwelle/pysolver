@@ -6,10 +6,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import pysolver as ps
+from lr_finder import LRFinder
 
-def get_model(layers=1, layer_size=288, reg_lambda=0.01):
-    dense_layers = [Dense(layer_size, input_shape=(288,), kernel_regularizer=keras.regularizers.l2(reg_lambda)), Activation('elu')]
-    dense_layers.extend((layers-1) * [Dense(layer_size, input_shape=(layer_size,), kernel_regularizer=keras.regularizers.l2(reg_lambda)), Activation('elu')])
+def get_model(layer_info=[288], reg_lambda=0.01):
+    
+    if(len(layer_info) == 0):
+        print("layer_info cannot be empty")
+        return None
+
+    dense_layers = [Dense(layer_info[0], input_shape=(288,), kernel_regularizer=keras.regularizers.l2(reg_lambda)), Activation('elu')]
+    
+    last_layer = layer_info[0]
+    for layer in layer_info:
+        dense_layers.extend([Dense(layer, input_shape=(last_layer,), kernel_regularizer=keras.regularizers.l2(reg_lambda)), Activation('elu')])
+        last_layer = layer
+
     dense_layers.append(Dense(1))
     dense_layers.append(Activation('elu'))
     k_model = Sequential(dense_layers)
@@ -171,7 +182,7 @@ if __name__ == '__main__':
     val_labels, val_data = get_data(test_model)
 
     # Try initial model (too few epochs!) (1 min 13 secs)
-    k_model = get_model(layers=1, layer_size=100, reg_lambda=0.01)
+    k_model = get_model(layer_info=[100], reg_lambda=0.01)
     train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels)
     plot_learning_curve(train_mse, val_mse, data_sizes)
     # train_mse
@@ -181,12 +192,6 @@ if __name__ == '__main__':
     #  1.1757188645812653,
     #  1.157283694763424]
     # val_mse = [2.2390652, 1.9152844, 1.9313699, 1.8837734, 1.9307281]
-
-    # Try model with more epochs
-    k_model = get_model(layers=1, layer_size=100, reg_lambda=0.01)
-    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
-        epochs=90, batch_size=32)
-    plot_learning_curve(train_mse, val_mse, data_sizes)
 
     # Try model with more epochs 8min 24s. Curves look good, still high variance. Need more data. 
     # Note: Amazon instance p2.xlarge was 23min 35s. Slowwww!!
@@ -263,6 +268,97 @@ if __name__ == '__main__':
     labels, data = get_data(model)
 
     ## Create test data
-    test_model = ps.Model()
-    test_model.create_training_data(n_games=2500, n_moves=15)
-    val_labels, val_data = get_data(test_model)
+    import pickle
+    with open("models/1000.pkl", "rb") as f:
+        test_model = pickle.load(f)
+        val_labels, val_data = get_data(test_model)
+
+
+    # Base model. High variance
+    k_model = get_model(layers=1, layer_size=100, reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # In [6]: train_mse
+    # Out[6]: 
+    # [1.6119696227863909,
+    #  1.6136937567233591,
+    #  1.6571004809239545,
+    #  1.6637332187800657,
+    #  1.670475259670603]
+
+    # In [7]: val_mse
+    # Out[7]: [1.7951659, 1.7616024, 1.9366946, 1.7412255, 1.7654753]
+
+    # Larger network. Still high bias! 1h 25min 39s
+    k_model = get_model(layers=2, layer_size=288, reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # In [10]: train_mse
+    # Out[10]: 
+    # [1.6880550534168288,
+    #  1.692283646907604,
+    #  1.7231736503733641,
+    #  1.7340434309323651,
+    #  1.7400832447578536]
+
+    # In [11]: val_mse
+    # Out[11]: [1.9112828, 1.8388073, 1.8732424, 1.8381759, 1.8142205]
+
+    #####
+    # Conclusions:
+    # hard to get bias down. use less data
+
+    model.training_data = model.training_data.sample(frac=0.5).reset_index(drop=True)
+    labels, data = get_data(model)
+
+    # 29 min. could go slightly deeper
+    k_model = get_model(layer_info=[100], reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # In [74]: train_mse
+    # Out[74]: 
+    # [1.4528788555633918,
+    #  1.5811162331004198,
+    #  1.6196184033497512,
+    #  1.6314786876197944,
+    #  1.6486933191562783]
+
+    # In [75]: val_mse
+    # Out[75]: [2.3969858, 1.9032001, 1.8346411, 1.7741485, 1.7828928]
+
+    k_model = get_model(layer_info=[72,72], reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+
+    # In [80]: train_mse
+    # Out[80]: 
+    # [1.4217503914193312,
+    #  1.5680213167172843,
+    #  1.5834921137149074,
+    #  1.6074862096292608,
+    #  1.6331608621657787]
+
+    # In [81]: val_mse
+    # Out[81]: [2.3058429, 1.8699716, 1.7746309, 1.773375, 1.8344156]
+
+    k_model = get_model(layer_info=[72,72,72], reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
+    # In [95]: train_mse
+    # Out[95]: 
+    # [1.5225229180278603,
+    #  1.665514293773594,
+    #  1.6771803459582455,
+    #  1.6915359080126326,
+    #  1.6867056246929004]
+
+    # In [96]: val_mse
+    # Out[96]: [2.0354822, 1.8670318, 1.9844126, 2.0279083, 1.8204767]
+
+    k_model = get_model(layer_info=[288*3], reg_lambda=0.01)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=90, batch_size=32)
