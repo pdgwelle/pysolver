@@ -3,12 +3,13 @@ from keras.models import Sequential
 from keras.layers import Dense, Activation
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 import pysolver as ps
 from lr_finder import LRFinder
 
-def get_model(layer_info=[288], reg_lambda=0.01):
+def get_model(layer_info=[288], reg_lambda=0.01, lr=0.01, decay=0.0):
     
     if(len(layer_info) == 0):
         print("layer_info cannot be empty")
@@ -24,7 +25,8 @@ def get_model(layer_info=[288], reg_lambda=0.01):
     dense_layers.append(Dense(1))
     dense_layers.append(Activation('elu'))
     k_model = Sequential(dense_layers)
-    k_model.compile(optimizer="adam", loss="mean_squared_error", metrics=[keras.metrics.mean_squared_error])
+    adam = keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, epsilon=None, decay=decay, amsgrad=False)
+    k_model.compile(optimizer=adam, loss="mean_squared_error", metrics=[keras.metrics.mean_squared_error])
     return k_model
 
 def get_data(model):
@@ -32,8 +34,12 @@ def get_data(model):
     data = model.training_data.iloc[:, 1:]
     return labels, data
 
-def train_model(k_model, data, labels, verbose=1, epochs=32, batch_size=128):
-    history = k_model.fit(data, labels, epochs=epochs, batch_size=batch_size, verbose=verbose)
+def train_model(k_model, data, labels, val_data=None, val_labels=None, verbose=1, epochs=32, batch_size=128):
+    if((val_data is None) | (val_labels is None)):
+        history = k_model.fit(data, labels, epochs=epochs, batch_size=batch_size, verbose=verbose)
+    else:
+        history = k_model.fit(data, labels, epochs=epochs, batch_size=batch_size, verbose=verbose,
+            validation_data = (val_data, val_labels))
     return history
 
 def learning_curve(k_model, data, labels, val_data, val_labels, n_steps=5, epochs=32, batch_size=128):
@@ -72,6 +78,26 @@ def plot_learning_curve(train_mse, val_mse, data_sizes):
     plt.axhline(1, color='red')
     plt.legend()
     plt.show()
+
+def get_errors(k_model, val_data, val_labels, plot=False):
+    y_hat = pd.Series(k_model.predict(val_data).flatten())
+    predict_df = pd.DataFrame({'y_hat': y_hat, 'y': val_labels})
+
+    unique_moves = np.sort(val_labels.unique())
+
+    mae_list = []
+    for move in unique_moves:
+        subset = predict_df[predict_df['y'] == move]
+        mae = np.sum(np.abs((subset['y'] - subset['y_hat']))) / len(subset)
+        mae_list.append(mae)
+
+    if(plot):
+        plt.bar(unique_moves, mae_list)
+        plt.ylabel("Mean Average Error")
+        plt.xlabel("Moves Away")
+        plt.show()
+
+    return mae_list
 
 if __name__ == '__main__':
     
@@ -310,8 +336,20 @@ if __name__ == '__main__':
     # Conclusions:
     # hard to get bias down. use less data
 
+    ## Read in data
+    import pickle
+    with open("models/25000.pkl", "rb") as f:
+        model = pickle.load(f)
+
+    ## Get data
     model.training_data = model.training_data.sample(frac=0.5).reset_index(drop=True)
     labels, data = get_data(model)
+
+    ## Create test data
+    import pickle
+    with open("models/1000.pkl", "rb") as f:
+        test_model = pickle.load(f)
+        val_labels, val_data = get_data(test_model)
 
     # 29 min. could go slightly deeper
     k_model = get_model(layer_info=[100], reg_lambda=0.01)
@@ -362,3 +400,168 @@ if __name__ == '__main__':
     k_model = get_model(layer_info=[288*3], reg_lambda=0.01)
     train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
         epochs=90, batch_size=32)
+
+    ##### Let's try to find the learning rate.
+    from lr_finder import LRFinder
+    lrf = LRFinder(max_iterations=5000, base_lr = 0.000001, max_lr = 0.02)
+    k_model = get_model(layer_info=[100], reg_lambda=0.01)
+    history = k_model.fit(data, labels, epochs=20, batch_size=32, callbacks=[lrf])
+    ## By graph, this is 0.005
+
+    lrf = LRFinder(max_iterations=5000, base_lr = 0.000001, max_lr = 0.02)
+    k_model = get_model(layer_info=[288*3], reg_lambda=0.01)
+    history = k_model.fit(data, labels, epochs=20, batch_size=32, callbacks=[lrf])
+    ## By graph, 0.01
+
+    lrf = LRFinder(max_iterations=5000, base_lr = 0.000001, max_lr = 0.02)
+    k_model = get_model(layer_info=[72,72,72], reg_lambda=0.01)
+    history = k_model.fit(data, labels, epochs=20, batch_size=32, callbacks=[lrf])
+    ## By graph, 0.01
+
+    lrf = LRFinder(max_iterations=5000, base_lr = 0.000001, max_lr = 0.02)
+    k_model = get_model(layer_info=[288*2,288,288//2,288//4], reg_lambda=0.01)
+    history = k_model.fit(data, labels, epochs=20, batch_size=32, callbacks=[lrf])
+    ## By graph, 0.01
+
+    ## Try again. Was 29 min before. ~3 min now!!
+    k_model = get_model(layer_info=[100], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=20, batch_size=256)
+
+    k_model = get_model(layer_info=[100], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=50, batch_size=256)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # In [27]: train_mse
+    # Out[27]: 
+    # [1.2221951383480179,
+    #  1.1887251623327457,
+    #  1.2048941364930956,
+    #  1.207964468683589,
+    #  1.187780393059651]
+
+    # In [28]: val_mse
+    # Out[28]: [1.792641, 1.6064909, 1.5612735, 1.5812222, 1.4981159]
+
+    ## Wider model (unknown time. 20 min?)
+    k_model = get_model(layer_info=[288*3], reg_lambda=0.01, lr=0.001, decay=1e-5)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=40, batch_size=256)
+
+    k_model = get_model(layer_info=[288*3], reg_lambda=0.01, lr=0.001, decay=1e-5)
+    train_mse, val_mse, data_sizes = learning_curve(k_model, data, labels, val_data, val_labels,
+        epochs=50, batch_size=256)
+    plot_learning_curve(train_mse, val_mse, data_sizes)
+    # In [46]: train_mse
+    # Out[46]: 
+    # [1.3814444879896077,
+    #  1.386773929793352,
+    #  1.4091110658924684,
+    #  1.3880066635308776,
+    #  1.3899421397596328]
+
+    # In [47]: val_mse
+    # Out[47]: [1.8826412, 1.9685493, 1.7004465, 1.6508207, 1.6368085]
+
+    ## Deeper model
+    k_model = get_model(layer_info=[144, 72], reg_lambda=0.01, lr=0.001, decay=1e-6)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=40, batch_size=128)
+    # Epoch 40/40
+    # 138410/138410 [==============================] - 4s 26us/step - loss: 1.8709 - mean_squared_error: 1.5678 - val_loss: 1.9226 - val_mean_squared_error: 1.6276
+
+    ## Even Deeper model
+    k_model = get_model(layer_info=[288,288//2,288//4], reg_lambda=0.01, lr=0.001, decay=1e-6)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=100, batch_size=128)
+    # Epoch 70/100
+    # 138410/138410 [==============================] - 6s 41us/step - loss: 1.8868 - mean_squared_error: 1.5994 - val_loss: 1.9931 - val_mean_squared_error: 1.7114
+
+    ## Smaller model
+    k_model = get_model(layer_info=[72, 36], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=100, batch_size=256)
+    # Epoch 72/100
+    # 138410/138410 [==============================] - 2s 14us/step - loss: 1.6022 - mean_squared_error: 1.3938 - val_loss: 1.7382 - val_mean_squared_error: 1.5301
+
+    ## Smaller model
+    k_model = get_model(layer_info=[72, 36, 18], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=100, batch_size=256)
+    # Epoch 39/100
+    # 138410/138410 [==============================] - 2s 14us/step - loss: 1.7711 - mean_squared_error: 1.5136 - val_loss: 1.8895 - val_mean_squared_error: 1.6337
+
+
+    # Let's go back to bigger data!
+
+    ## Read in data
+    import pickle
+    with open("models/25000.pkl", "rb") as f:
+        model = pickle.load(f)
+
+    ## Get data
+    labels, data = get_data(model)
+
+    ## Create test data
+    import pickle
+    with open("models/1000.pkl", "rb") as f:
+        test_model = pickle.load(f)
+        val_labels, val_data = get_data(test_model)
+
+    k_model = get_model(layer_info=[100], reg_lambda=0.01, lr=0.001, decay=1e-3)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=20, batch_size=256)
+    ## something like 1.46 after 100 epochs
+
+    k_model = get_model(layer_info=[72, 36], reg_lambda=0.01, lr=0.001, decay=1e-3)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=20, batch_size=256)
+    # Epoch 20/20
+    # 276821/276821 [==============================] - 4s 15us/step - loss: 1.8178 - mean_squared_error: 1.4832 - val_loss: 1.8798 - val_mean_squared_error: 1.5460
+
+    k_model = get_model(layer_info=[144, 72], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=100, batch_size=256)
+    # Epoch 20/20
+    # 276821/276821 [==============================] - 5s 19us/step - loss: 1.7059 - mean_squared_error: 1.4619 - val_loss: 1.7600 - val_mean_squared_error: 1.5179
+    # Epoch 35/100
+    # 276821/276821 [==============================] - 6s 21us/step - loss: 1.6428 - mean_squared_error: 1.4357 - val_loss: 1.7302 - val_mean_squared_error: 1.5240
+
+    k_model = get_model(layer_info=[288, 72], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=100, batch_size=256)
+    # Epoch 50/100
+    # 276821/276821 [==============================] - 9s 33us/step - loss: 1.5652 - mean_squared_error: 1.3616 - val_loss: 1.6373 - val_mean_squared_error: 1.4344
+
+    ##########################
+    # Even more!
+    #########################
+
+    ## Read in data
+    import pickle
+    with open("models/100000.pkl", "rb") as f:
+        model = pickle.load(f)
+
+    ## Get data
+    labels, data = get_data(model)
+
+    ## Create test data
+    import pickle
+    with open("models/1000.pkl", "rb") as f:
+        test_model = pickle.load(f)
+        val_labels, val_data = get_data(test_model)
+
+    k_model = get_model(layer_info=[100], reg_lambda=0.01, lr=0.001, decay=1e-3)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=20, batch_size=256)
+
+    lr = 0.00001
+    decay=1e-3
+    adam = keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, epsilon=None, decay=decay, amsgrad=False)
+    k_model.compile(optimizer=adam, loss="mean_squared_error", metrics=[keras.metrics.mean_squared_error])
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=20, batch_size=256)
+    # Epoch 3/20
+    # 1106092/1106092 [==============================] - 16s 14us/step - loss: 1.6226 - mean_squared_error: 1.4210 - val_loss: 1.6295 - val_mean_squared_error: 1.4278
+
+    k_model = get_model(layer_info=[288,72], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=50, batch_size=256)    
+    # Epoch 32/50
+    # 1106092/1106092 [==============================] - 28s 25us/step - loss: 1.5860 - mean_squared_error: 1.4418 - val_loss: 1.6061 - val_mean_squared_error: 1.4624
+
+    k_model = get_model(layer_info=[288,72,72], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=50, batch_size=512)    
+    # After 50 epochs, train_mse=1.36, val_mse=1.36
+
+    k_model = get_model(layer_info=[288*2,288,72], reg_lambda=0.01, lr=0.001, decay=1e-4)
+    history = train_model(k_model, data, labels, val_data, val_labels, verbose=1, epochs=50, batch_size=512)    
+    # Epoch 50/50
+    # 1106092/1106092 [==============================] - 50s 45us/step - loss: 1.5662 - mean_squared_error: 1.4067 - val_loss: 1.5716 - val_mean_squared_error: 1.4124

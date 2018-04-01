@@ -43,4 +43,5 @@ class LRFinder(Callback):
 
     def on_train_end(self, logs=None):
         plt.plot(self.lrs, self.losses)
+        plt.xscale('log')
         plt.show()
