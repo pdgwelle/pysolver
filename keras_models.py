@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+import pickle
+
 import pysolver as ps
 from lr_finder import LRFinder
 
@@ -100,4 +102,15 @@ def get_errors(k_model, val_data, val_labels, plot=False):
     return mae_list
 
 if __name__ == '__main__':
-    pass
+
+    ## Read in data
+    with open("models/1000000.pkl", "rb") as f:
+        model = pickle.load(f)
+
+    ## Get data
+    labels, data = get_data(model)
+
+    ## Create test data
+    with open("models/1000.pkl", "rb") as f:
+        test_model = pickle.load(f)
+        val_labels, val_data = get_data(test_model)
